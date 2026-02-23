@@ -16,7 +16,7 @@ import UsernameModal from "@/components/UsernameModal";
 import ScrollProgress from "@/components/ScrollProgress";
 import { motion, AnimatePresence } from "framer-motion";
 
-const API = "http://localhost:8000";
+const API = import.meta.env.VITE_API_URL;
 
 interface SummaryData {
   title_guess?: string;
