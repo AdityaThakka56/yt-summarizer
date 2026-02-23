@@ -79,10 +79,10 @@ const Index = () => {
     setBookmarked(false);
   
     try {
-      const id = extractVideoId(url);
-      if (!id) throw new Error("Invalid YouTube URL");
+      if (!url || !url.includes("youtube")) {
+        throw new Error("Please enter a valid YouTube URL.");
+      }
   
-      // ✅ Send only URL to backend
       const res = await fetch(`${API}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +93,15 @@ const Index = () => {
       });
   
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Something went wrong");
+  
+      if (!res.ok) {
+        console.error("Backend error:", data);
+        throw new Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : JSON.stringify(data.detail)
+        );
+      }
   
       setSummary(data.summary);
       setVideoId(data.video_id);
@@ -103,7 +111,13 @@ const Index = () => {
   
       toast.success("Video summarized!");
     } catch (err: any) {
-      toast.error(err.message || "Something went wrong");
+      console.error("FULL ERROR:", err);
+  
+      if (err?.message) {
+        toast.error(String(err.message));
+      } else {
+        toast.error("Unexpected error occurred.");
+      }
     } finally {
       setLoading(false);
     }
