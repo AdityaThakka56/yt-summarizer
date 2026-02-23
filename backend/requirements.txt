@@ -6,3 +6,4 @@ google-genai
 youtube-transcript-api
 fpdf2
 pydantic
+yt-dlp
