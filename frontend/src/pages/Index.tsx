@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { YoutubeTranscript } from "youtube-transcript";
 import AppNavbar from "@/components/AppNavbar";
 import HeroSection from "@/components/HeroSection";
 import HowItWorks from "@/components/HowItWorks";
@@ -83,26 +82,34 @@ const Index = () => {
       const id = extractVideoId(url);
       if (!id) throw new Error("Invalid YouTube URL");
 
-      // 🔥 Fetch transcript from browser (NOT backend)
-      const transcriptData = await YoutubeTranscript.fetchTranscript(id);
+      // ✅ Fetch transcript from public transcript endpoint (CORS safe)
+      const transcriptRes = await fetch(
+        `https://youtubetranscript.com/?server_vid2=${id}`
+      );
 
-      if (!transcriptData || transcriptData.length === 0) {
-        throw new Error("No transcript available for this video.");
+      if (!transcriptRes.ok) {
+        throw new Error("Transcript not available for this video.");
+      }
+
+      const transcriptData = await transcriptRes.json();
+
+      if (!Array.isArray(transcriptData) || transcriptData.length === 0) {
+        throw new Error("Transcript is empty or disabled.");
       }
 
       const transcriptText = transcriptData
-        .map((item) => item.text)
+        .map((item: any) => item.text)
         .join(" ");
 
-      // 🔥 Send transcript to backend
+      // ✅ Send transcript to backend
       const res = await fetch(`${API}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: transcriptText,
           video_id: id,
-          language,
           url,
+          language,
         }),
       });
 
