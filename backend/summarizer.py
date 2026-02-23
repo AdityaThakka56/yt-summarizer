@@ -15,7 +15,9 @@ SUPPORTED_LANGUAGES = {
 }
 
 
-def summarize_transcript(transcript: str, timestamped_chunks: list) -> dict:
+# ===================== MAIN SUMMARIZER =====================
+
+def summarize_transcript(transcript: str) -> dict:
     trimmed = transcript[:30000]
 
     prompt = f"""
@@ -47,15 +49,17 @@ KEYWORDS: keyword1, keyword2, keyword3
 TRANSCRIPT:
 {trimmed}
 """
+
     print("Generating summary...")
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt
     )
+
     summary = parse_summary_response(response.text)
 
     print("Generating timestamped breakdown...")
-    summary["timestamped_summary"] = generate_timestamped_summary(timestamped_chunks)
+    summary["timestamped_summary"] = generate_timestamped_summary_from_text(trimmed)
 
     print("Generating quiz...")
     summary["quiz"] = generate_quiz(trimmed)
@@ -66,41 +70,39 @@ TRANSCRIPT:
     return summary
 
 
+# ===================== QUIZ =====================
+
 def generate_quiz(transcript: str) -> list:
     prompt = f"""
 You are a quiz generator. Based on the YouTube video transcript below,
 generate exactly 5 multiple choice questions to test understanding.
 
-Return ONLY a valid JSON array, nothing else, no markdown, no backticks.
+Return ONLY a valid JSON array.
 
 Format:
 [
   {{
-    "question": "Question text here?",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "question": "Question?",
+    "options": ["A", "B", "C", "D"],
     "correct": 0,
-    "explanation": "Brief explanation of why this is correct"
+    "explanation": "Why correct"
   }}
 ]
-
-Rules:
-- "correct" is the index (0-3) of the correct option
-- Questions should test genuine understanding, not just memory
-- Make wrong options believable
-- Keep questions clear and concise
 
 TRANSCRIPT:
 {transcript[:25000]}
 """
+
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt
     )
+
     raw = response.text.strip().replace("```json", "").replace("```", "").strip()
 
     try:
         return json.loads(raw)
-    except json.JSONDecodeError:
+    except:
         start = raw.find("[")
         end = raw.rfind("]") + 1
         if start != -1 and end != 0:
@@ -108,41 +110,39 @@ TRANSCRIPT:
         return []
 
 
+# ===================== SUGGESTIONS =====================
+
 def generate_suggestions(summary: dict) -> list:
     title = summary.get("title_guess", "")
     keywords = ", ".join(summary.get("keywords", []))
 
     prompt = f"""
-Based on this YouTube video topic and keywords, suggest 5 real and relevant YouTube videos.
+Suggest 5 real YouTube videos related to:
 
-Video Topic: {title}
+Topic: {title}
 Keywords: {keywords}
 
-Return ONLY a valid JSON array of 5 objects, no markdown, no backticks:
+Return ONLY JSON array:
 [
   {{
-    "title": "Actual video title",
-    "channel": "Channel name",
-    "reason": "One short sentence why this is relevant",
-    "search_query": "exact search query to find this video"
+    "title": "...",
+    "channel": "...",
+    "reason": "...",
+    "search_query": "..."
   }}
 ]
-
-Rules:
-- Suggest real well-known videos that actually exist on YouTube
-- Titles should be specific and realistic
-- Channel names should be real YouTube channels
-- search_query should help find the exact video
 """
+
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt
     )
+
     raw = response.text.strip().replace("```json", "").replace("```", "").strip()
 
     try:
         suggestions = json.loads(raw)
-    except json.JSONDecodeError:
+    except:
         start = raw.find("[")
         end = raw.rfind("]") + 1
         if start != -1 and end != 0:
@@ -157,31 +157,32 @@ Rules:
     return suggestions
 
 
-def generate_timestamped_summary(chunks: list) -> list:
-    chunks_text = ""
-    for chunk in chunks:
-        chunks_text += f"[{chunk['timestamp_label']}] {chunk['text']}\n\n"
+# ===================== TIMESTAMPED SUMMARY =====================
 
+def generate_timestamped_summary_from_text(transcript: str) -> list:
     prompt = f"""
-Below is a YouTube transcript split into 30-second chunks with timestamps.
-For EACH chunk, write ONE short sentence (max 15 words) summarizing what is discussed.
+Divide the following transcript into logical sections.
 
-Return ONLY in this exact format, one per line, nothing else:
-TIMESTAMP | SUMMARY
+Return format:
+0:00 | Short summary
+1:00 | Short summary
+2:00 | Short summary
 
-Example:
-0:00 | Speaker introduces the topic of machine learning
-0:30 | Explains the difference between supervised and unsupervised learning
+Keep each summary under 15 words.
 
-TRANSCRIPT CHUNKS:
-{chunks_text[:20000]}
+TRANSCRIPT:
+{transcript[:20000]}
 """
+
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt
     )
+
     return parse_timestamped_response(response.text)
 
+
+# ===================== TRANSLATION =====================
 
 def translate_summary(summary: dict, target_language: str) -> dict:
     if target_language == "en":
@@ -189,7 +190,7 @@ def translate_summary(summary: dict, target_language: str) -> dict:
 
     lang_name = SUPPORTED_LANGUAGES.get(target_language, "English")
 
-    fields_to_translate = {
+    fields = {
         "title_guess": summary.get("title_guess", ""),
         "quick_summary": summary.get("quick_summary", ""),
         "detailed_summary": summary.get("detailed_summary", ""),
@@ -197,33 +198,34 @@ def translate_summary(summary: dict, target_language: str) -> dict:
     }
 
     prompt = f"""
-Translate the following text fields into {lang_name}.
-Return ONLY valid JSON with the same keys, no markdown, no backticks.
+Translate into {lang_name}.
+Return ONLY JSON.
 
-{json.dumps(fields_to_translate, ensure_ascii=False)}
+{json.dumps(fields, ensure_ascii=False)}
 """
+
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt
     )
+
     raw = response.text.strip().replace("```json", "").replace("```", "").strip()
 
     try:
         translated = json.loads(raw)
         result = summary.copy()
-        result["title_guess"] = translated.get("title_guess", summary["title_guess"])
-        result["quick_summary"] = translated.get("quick_summary", summary["quick_summary"])
-        result["detailed_summary"] = translated.get("detailed_summary", summary["detailed_summary"])
-        takeaways_text = translated.get("key_takeaways", "")
+        result.update(translated)
         result["key_takeaways"] = [
             line.strip().lstrip("-•* ")
-            for line in takeaways_text.split("\n")
+            for line in translated.get("key_takeaways", "").split("\n")
             if line.strip()
         ]
         return result
-    except Exception:
+    except:
         return summary
 
+
+# ===================== PARSERS =====================
 
 def parse_summary_response(text: str) -> dict:
     sections = ["TITLE_GUESS:", "QUICK_SUMMARY:", "KEY_TAKEAWAYS:",
@@ -240,13 +242,16 @@ def parse_summary_response(text: str) -> dict:
         result[section.replace(":", "").lower()] = text[start:end].strip()
 
     if "key_takeaways" in result:
-        lines = result["key_takeaways"].split("\n")
         result["key_takeaways"] = [
-            line.strip().lstrip("-•* ") for line in lines if line.strip()
+            line.strip().lstrip("-•* ")
+            for line in result["key_takeaways"].split("\n")
+            if line.strip()
         ]
 
     if "keywords" in result:
-        result["keywords"] = [k.strip() for k in result["keywords"].split(",")]
+        result["keywords"] = [
+            k.strip() for k in result["keywords"].split(",")
+        ]
 
     return result
 
@@ -257,9 +262,8 @@ def parse_timestamped_response(text: str) -> list:
         if "|" in line:
             parts = line.split("|", 1)
             if len(parts) == 2:
-                timestamp = parts[0].strip()
-                summary_text = parts[1].strip()
-                if timestamp.lower() == "timestamp":
-                    continue
-                result.append({"timestamp": timestamp, "summary": summary_text})
+                result.append({
+                    "timestamp": parts[0].strip(),
+                    "summary": parts[1].strip()
+                })
     return result
