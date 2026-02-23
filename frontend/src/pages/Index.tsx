@@ -77,51 +77,30 @@ const Index = () => {
     setSummary(null);
     setVideoId(null);
     setBookmarked(false);
-
+  
     try {
       const id = extractVideoId(url);
       if (!id) throw new Error("Invalid YouTube URL");
-
-      // ✅ Fetch transcript from public transcript endpoint (CORS safe)
-      const transcriptRes = await fetch(
-        `https://youtubetranscript.com/?server_vid2=${id}`
-      );
-
-      if (!transcriptRes.ok) {
-        throw new Error("Transcript not available for this video.");
-      }
-
-      const transcriptData = await transcriptRes.json();
-
-      if (!Array.isArray(transcriptData) || transcriptData.length === 0) {
-        throw new Error("Transcript is empty or disabled.");
-      }
-
-      const transcriptText = transcriptData
-        .map((item: any) => item.text)
-        .join(" ");
-
-      // ✅ Send transcript to backend
+  
+      // ✅ Send only URL to backend
       const res = await fetch(`${API}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          transcript: transcriptText,
-          video_id: id,
           url,
           language,
         }),
       });
-
+  
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Something went wrong");
-
+  
       setSummary(data.summary);
-      setVideoId(id);
-
-      await checkBookmark(id, username);
+      setVideoId(data.video_id);
+  
+      await checkBookmark(data.video_id, username);
       await fetchHistory();
-
+  
       toast.success("Video summarized!");
     } catch (err: any) {
       toast.error(err.message || "Something went wrong");
@@ -129,7 +108,7 @@ const Index = () => {
       setLoading(false);
     }
   };
-
+  
   return (
     <div className="min-h-screen bg-background">
       <ScrollProgress />
