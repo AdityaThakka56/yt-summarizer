@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { YoutubeTranscript } from "youtube-transcript";
 import AppNavbar from "@/components/AppNavbar";
 import HeroSection from "@/components/HeroSection";
 import HowItWorks from "@/components/HowItWorks";
@@ -33,6 +34,13 @@ interface HistoryItem {
   title_guess?: string;
   summarized_at: string;
 }
+
+const extractVideoId = (url: string): string | null => {
+  const regExp =
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/;
+  const match = url.match(regExp);
+  return match ? match[1] : null;
+};
 
 const Index = () => {
   const [page, setPage] = useState("home");
@@ -70,18 +78,43 @@ const Index = () => {
     setSummary(null);
     setVideoId(null);
     setBookmarked(false);
+
     try {
+      const id = extractVideoId(url);
+      if (!id) throw new Error("Invalid YouTube URL");
+
+      // 🔥 Fetch transcript from browser (NOT backend)
+      const transcriptData = await YoutubeTranscript.fetchTranscript(id);
+
+      if (!transcriptData || transcriptData.length === 0) {
+        throw new Error("No transcript available for this video.");
+      }
+
+      const transcriptText = transcriptData
+        .map((item) => item.text)
+        .join(" ");
+
+      // 🔥 Send transcript to backend
       const res = await fetch(`${API}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, language }),
+        body: JSON.stringify({
+          transcript: transcriptText,
+          video_id: id,
+          language,
+          url,
+        }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Something went wrong");
+
       setSummary(data.summary);
-      setVideoId(data.video_id);
-      await checkBookmark(data.video_id, username);
+      setVideoId(id);
+
+      await checkBookmark(id, username);
       await fetchHistory();
+
       toast.success("Video summarized!");
     } catch (err: any) {
       toast.error(err.message || "Something went wrong");
@@ -93,6 +126,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <ScrollProgress />
+
       <UsernameModal
         open={showUsernameModal}
         onSubmit={(name) => {
@@ -113,14 +147,12 @@ const Index = () => {
           <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <HeroSection onSummarize={handleSummarize} loading={loading} />
 
-            {/* History shown before results */}
             {!summary && !loading && history.length > 0 && (
               <div className="max-w-2xl mx-auto px-6 -mt-8 mb-16">
                 <RecentHistory history={history} onSelect={(url) => handleSummarize(url)} />
               </div>
             )}
 
-            {/* Results */}
             {summary && videoId && (
               <div className="max-w-5xl mx-auto px-6 pb-20">
                 <div className="grid md:grid-cols-2 gap-6">
@@ -147,7 +179,6 @@ const Index = () => {
               </div>
             )}
 
-            {/* Landing sections when no results */}
             {!summary && !loading && (
               <>
                 <HowItWorks />
